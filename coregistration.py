@@ -1,6 +1,6 @@
 import os
 import numpy as np
-
+import cv2
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
 import matplotlib.patches as patches
@@ -8,7 +8,8 @@ import matplotlib.patches as patches
 #以下設定Times New Roman字體
 #plt.rcParams["font.family"] = "Times New Roman"
 #以下處理標楷體字體
-plt.rcParams['font.sans-serif'] = ['DFKai-SB']#['Microsoft JhengHei'] 
+#plt.rcParams["font.family"] = 'sans-serif'
+#plt.rcParams['font.sans-serif'] = ['DFKai-SB', 'Times New Roman']#['Microsoft JhengHei'] 
 plt.rcParams['axes.unicode_minus'] = False
 
 
@@ -30,7 +31,9 @@ def extract_data(coregistration_Error_file):
     return first_group, second_group
 
 
-def export_chart(coregistration_Error_file, policy_path):
+def export_chart(coregistration_Error_file, policy_path, font):
+
+    plt.rcParams['font.sans-serif'] = font
     
     def min_max_mean_std(data):
         return [str(round(x,2)) for x in [min(data), max(data), np.mean(data), np.std(data)]]
@@ -108,9 +111,14 @@ def export_chart(coregistration_Error_file, policy_path):
     #fig.set_size_inches(11.7, 8.3)
     fig.set_size_inches(15, 10.6)
     #plt.show()
-    img_path = policy_path + '\\coregistration.png'
+    directory = policy_path + '\\doc'
+    if not os.path.exists(directory):
+        os.mkdir(directory)
+    img_path = directory + '\\coregistration' + font + '.png'
     plt.savefig(img_path)
-    os.system('start ' + img_path)
+    
+    #os.system('start ' + img_path)
+    return img_path
 
 
 
@@ -145,4 +153,27 @@ if __name__ == '__main__':
         
         print('開始處理', policy_dir, '...')#, end = '')
 
-        export_chart(coregistration_Error_file, policy_path + '\\' + policy_dir)
+        ch_img_path, en_img_path = [export_chart(coregistration_Error_file, policy_path + '\\' + policy_dir, font=font) for font in ['DFKai-SB', 'Times New Roman']]
+        ch_img, en_img = [cv2.imread(p) for p in [ch_img_path, en_img_path]]
+
+        # 剪貼兩個表格前的中文
+        en_img[173:250, 517:676] = ch_img[173:250, 517:676]
+        en_img[665:734, 517:676] = ch_img[665:734, 517:676]
+
+        # 剪貼兩個表格的 Legend
+        en_img[132:181, 1193:1345] = ch_img[132:181, 1193:1345]
+        en_img[621:680, 1193:1345] = ch_img[621:680, 1193:1345]
+
+        # 移動 Pixel 標題位置並剪貼 '誤差值' 過來
+        pixel_text_img = en_img[230:301, 132:157].copy()
+        en_img[230:360, 132:157] = (255, 255, 255)
+        en_img[210:281, 113:138] = pixel_text_img
+        en_img[286:358, 112:140] = ch_img[286:358, 112:140]
+
+        en_img[717:849, 132:157] = (255, 255, 255)
+        en_img[700:771, 113:138] = pixel_text_img
+        en_img[775:849, 112:140] = ch_img[775:849, 112:140]
+
+        img_path = policy_path + '\\' + policy_dir + '\\doc\\coregistration.png'
+        cv2.imwrite(img_path, en_img)
+        os.system('start ' + img_path)

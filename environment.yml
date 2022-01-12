@@ -12,3 +12,5 @@ dependencies:
   - python-docx
   - docxcompose
   - matplotlib
+  -pip:
+    - opencv-python
