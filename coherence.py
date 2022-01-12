@@ -25,14 +25,14 @@ def extract_data(coherence_file):
     return before, after        
 
 
-def export_result(coherence_file, policy_path):
+def export_result(coherence_file, policy_path, index):
     
     before, after = extract_data(coherence_file)
      
     plt.scatter(before, after, facecolors='none', edgecolors='b')
     plt.xlabel("濾波前同調性", fontsize=18)
     plt.ylabel("濾波後同調性", fontsize=18)
-    plt.title("濾波前後同調性比較圖", fontsize=20)
+    plt.title("濾波前後同調性比較圖 (" + str(index) + ')', fontsize=20)
     plt.xlim(0, 1)
     plt.xticks([0, 0.5, 1])
     plt.minorticks_on()
@@ -84,4 +84,4 @@ if __name__ == '__main__':
         
         print('開始處理', policy_dir, '...')#, end = '')
 
-        export_result(coherence_file, policy_path + '\\' + policy_dir)
+        export_result(coherence_file, policy_path + '\\' + policy_dir, index+1)
