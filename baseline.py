@@ -1,3 +1,5 @@
+import pathlib
+import utils
 from docx import Document
 from docx.shared import Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -33,7 +35,7 @@ class Policy:
         # 開啟對應的範例
         length = self.policy_length = len(self.shortbaseline)
         assert length in [39, 69]
-        self.document = Document("templates\\template-" + str(length) + "e.docx")
+        self.document = Document("templates\\baseline-" + str(length) + ".docx")
 
     def export_eps_to_png(self):
         
@@ -101,9 +103,8 @@ class Policy:
         table = self.document.tables[2]
 
         # 準備壓縮圖片的資料夾
-        temppath = self.policy_dir + '\\temp-compressed'
-        if not os.path.isdir(temppath):
-            os.mkdir(temppath)
+        tmp_path = self.policy_dir + '\\tmp\\compressed'
+        pathlib.Path(tmp_path).mkdir(parents=True, exist_ok=True)
 
         # 填表
         cell_per_row = {39:5, 69:7}[self.policy_length]
@@ -120,7 +121,7 @@ class Policy:
             # 壓縮圖片
             filename = day1 + '-' + day2 + '.tflt.filt.de'
             bmp_path = self.policy_dir + '\\postprocessing\\detrend_obs_file\\' + filename + '.bmp'
-            png_path = temppath + '\\' + filename + '.png'
+            png_path = tmp_path + '\\' + filename + '.png'
             img = Image.open(bmp_path)
             w, h = img.size
             s = cell_scale * self.image_scale
@@ -147,7 +148,11 @@ class Policy:
         self.add_plot()
         if add_page_break:
             self.document.add_page_break()
-        self.document.save(self.policy_dir + '\\' + 'out.docx')
+            
+        doc_path = self.policy_dir + '\\tmp\\baseline-' + str(index) + '.docx'
+        self.document.save(doc_path)
+
+        return doc_path
 
 
 
@@ -159,12 +164,6 @@ if __name__ == '__main__':
     print('啟動中...')
     print('正在 ' + policy_path + ' 位置下尋找 Policy 資料夾... ', end='')
 
-    from docxcompose.composer import Composer
-    from docx import Document as Document_compose
-
-    master = None
-    composer = None
-
     import glob
     policies = glob.glob(policy_path + '\Policy*')
     print('共找到 ', len(policies), ' 組資料如下')
@@ -172,7 +171,7 @@ if __name__ == '__main__':
         print(p.split('\\')[-1])
 
     print('開始處理:')
-
+    doc_paths = []
     for index, policy_dir in enumerate(policies):
         # 如果沒有 postprocessing 資料夾的話，這筆 Policy 會被跳過
         if os.path.isdir(policy_dir + '\\postprocessing'):
@@ -184,15 +183,11 @@ if __name__ == '__main__':
         
         # 輸出 docx，最後一頁不要換頁
         add_page_break = (doc_index != len(policies))
-        policy.export_parital_docx(add_page_break=add_page_break)
+        doc_path = policy.export_parital_docx(add_page_break=add_page_break)
         print('done')
+        doc_paths.append(doc_path)
 
-        if master is None:
-            master = Document_compose(policy_dir + '\\out.docx')
-            composer = Composer(master)
-        else:
-            partial_docx = Document_compose(policy_dir + '\\out.docx')
-            composer.append(partial_docx)
-
-    composer.save(policy_path + "\output.docx")
-
+    # 組合所有頁面並打開檔案
+    output_path = policy_path + "\\doc\\基線.docx"
+    utils.concatenate_docx(doc_paths, output_path)
+    os.system('start ' + output_path)
