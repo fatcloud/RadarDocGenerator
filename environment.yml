@@ -3,14 +3,14 @@ channels:
   - defaults
 
 dependencies:
-  - python=3.7.*
-  - pip
+  - python=3.7.11
+  - pip=21.3.1
   - git
-  - Pillow
-  - numpy
-  - ghostscript
-  - python-docx
-  - docxcompose
-  - matplotlib
+  - Pillow=8.4.0
+  - numpy=1.21.5
+  - ghostscript=9.54.0
+  - python-docx=0.8.11
+  - docxcompose=1.3.4
+  - matplotlib=3.5.0
   -pip:
-    - opencv-python
+    - opencv-python=4.5.5.62
