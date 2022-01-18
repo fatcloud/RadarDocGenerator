@@ -1,4 +1,9 @@
-import os
+from docx import Document
+from docx.shared import Cm
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+
+import os, pathlib
 import numpy as np
 from numpy.polynomial.polynomial import polyfit
 
@@ -48,9 +53,8 @@ def export_result(coherence_file, policy_path, index):
     #plt.show()
     img_path = policy_path + '\\coherence.png'
     plt.savefig(img_path, dpi=100)
-    os.system('start ' + img_path)
     plt.clf()
-
+    return img_path
 
 
 
@@ -73,7 +77,8 @@ if __name__ == '__main__':
     print('開始處理:')
 
     import os
-    
+
+    pic_groups = [[]]
     for index, policy_dir in enumerate(policies):
         # 如果沒有 ifg_coh_filt_coh_compare 檔案的話，這筆 Policy 會被跳過
 
@@ -84,4 +89,55 @@ if __name__ == '__main__':
         
         print('開始處理', policy_dir, '...')#, end = '')
 
-        export_result(coherence_file, policy_path + '\\' + policy_dir, index+1)
+        img_path = export_result(coherence_file, policy_path + '\\' + policy_dir, index+1)
+
+        # 將輸出的圖片六張一組分開
+        if len(pic_groups[-1]) == 6:
+            pic_groups.append([img_path])
+        else:
+            pic_groups[-1].append(img_path)
+
+    # 產生暫存資料夾
+    tmp_path = policy_path + '\\tmp'
+    pathlib.Path(tmp_path).mkdir(parents=True, exist_ok=True)
+
+    # 將圖片一張一張貼進表格
+    doc_paths = []
+    for doc_index, pic_group in enumerate(pic_groups):
+        doc = Document('templates\\coherence.docx')
+        table = doc.tables[0]
+
+        # 改編號
+        for img_index, img_path in enumerate(pic_group):
+            cell = table.rows[(img_index//2) * 2].cells[img_index % 2]
+            cell.paragraphs[0].runs[1].text = str( img_index + doc_index * 6 + 1)
+
+        if doc_index > 0:
+            doc.paragraphs[0].text = ''
+
+        # 上圖
+        for img_index, img_path in enumerate(pic_group):
+            cell = table.rows[(img_index//2) * 2 + 1].cells[img_index % 2]
+            cell._element.clear_content()
+            cell.add_paragraph().add_run().add_picture(img_path, width=Cm(6))
+            cell.paragraphs[0].alignment=WD_ALIGN_PARAGRAPH.CENTER
+
+        if len(pic_group) < 5:
+            def remove_row(table, row):
+                tbl = table._tbl
+                tr = row._tr
+                tbl.remove(tr)
+
+            # delete empty rows
+            for row in table.rows[((len(pic_group)-1)//2) * 2 + 2:]:
+                remove_row(table, row)
+
+        doc_path = tmp_path + '\\coherence-' + str(doc_index) + '.docx'
+        doc_paths.append(doc_path)
+        doc.save(doc_path)
+        
+    # 組合全部的 docx
+    from utils import concatenate_docx
+    output_path = policy_path + "\\doc\\coherence.docx"
+    concatenate_docx(doc_paths, output_path)
+    os.system(output_path)
