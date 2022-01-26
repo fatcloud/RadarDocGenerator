@@ -37,8 +37,19 @@ class Policy:
         assert length in [39, 69]
         self.document = Document("templates\\baseline-" + str(length) + ".docx")
 
+    def check_bmp_path(self):
+        for idx, row in enumerate(self.shortbaseline):
+            day1, day2, distance, period = self.shortbaseline[idx]
+
+            # 檢查檔案名
+            filename = day1 + '-' + day2 + '.tflt.filt.de'
+            bmp_path = self.policy_dir + '\\postprocessing\\detrend_obs_file\\' + filename + '.bmp'
+            if not os.path.isfile(bmp_path):
+                return bmp_path
+
+
     def export_eps_to_png(self):
-        
+
         plot = 'shortbaseline_plot.eps'
         eps_image = Image.open( self.policy_dir + '\\' + plot)
         eps_image.load(scale=3)
