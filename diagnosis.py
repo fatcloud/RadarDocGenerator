@@ -34,7 +34,7 @@ for index, policy_dir in enumerate(policies):
         print('    找不到', postprocessing_file, '無法分析基線資訊')
         good = False
 
-    shortbaseline_plot_path =policy_dir + '\\shortbaseline_plot.png'
+    shortbaseline_plot_path =policy_dir + '\\shortbaseline_plot.eps'
     if not os.path.isfile(shortbaseline_plot_path):
         print('    找不到', shortbaseline_plot_path, '無法貼上大張基線圖')
         good = False
