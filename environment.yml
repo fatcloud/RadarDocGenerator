@@ -11,6 +11,6 @@ dependencies:
   - ghostscript=9.54.0
   - python-docx=0.8.11
   - docxcompose=1.3.4
-  - matplotlib=3.5.0
+  - matplotlib
   - pip:
     - opencv-python==4.5.5.62
