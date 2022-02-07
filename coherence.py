@@ -132,6 +132,10 @@ if __name__ == '__main__':
             for row in table.rows[((len(pic_group)-1)//2) * 2 + 2:]:
                 remove_row(table, row)
 
+        if doc_index != len(pic_groups) - 1:
+            doc.add_page_break()
+
+
         doc_path = tmp_path + '\\coherence-' + str(doc_index) + '.docx'
         doc_paths.append(doc_path)
         doc.save(doc_path)
@@ -140,4 +144,4 @@ if __name__ == '__main__':
     from utils import concatenate_docx
     output_path = policy_path + "\\doc\\coherence.docx"
     concatenate_docx(doc_paths, output_path)
-    os.system(output_path)
+    os.system('start ' + output_path)
