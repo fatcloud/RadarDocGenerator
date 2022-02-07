@@ -235,4 +235,4 @@ if __name__ == '__main__':
     from utils import concatenate_docx
     output_path = policy_path + "\\doc\\coregistration.docx"
     concatenate_docx(doc_paths, output_path)
-    os.system(output_path)
+    os.system('start ' + output_path)
