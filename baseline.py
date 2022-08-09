@@ -34,7 +34,7 @@ class Policy:
 
         # 開啟對應的範例
         length = self.policy_length = len(self.shortbaseline)
-        assert length in [39, 69]
+        assert length in [7, 27, 39, 69]
         self.document = Document("templates\\baseline-" + str(length) + ".docx")
 
     def check_bmp_path(self):
@@ -92,7 +92,9 @@ class Policy:
         
         # 驗證範例檔的表格列數與資料的欄位數量相符 (照理說不會有問題)
         row_number = ceil(self.policy_length / 2)
-        assert row_number == len(table.rows)-1
+
+        assert row_number == len(table.rows)-1, '範本檔案中影像資料清單的資料列數應為資料總數的一半，預期有' +\
+                                str(row_number) + '列，實際上有' + str(len(table.rows)-1) + '列'
 
         # 開始填表 (左半)
         for idx in range(row_number):
@@ -118,9 +120,9 @@ class Policy:
         pathlib.Path(tmp_path).mkdir(parents=True, exist_ok=True)
 
         # 填表
-        cell_per_row = {39:5, 69:7}[self.policy_length]
-        cell_size = {39:[2.9, 2.3], 69:[2.1, 1.7]}[self.policy_length]
-        cell_scale = {39:1, 69:0.75}[self.policy_length]
+        cell_per_row = {39:5, 69:7, 27:4, 7:4}[self.policy_length]
+        cell_size = {39:[2.9, 2.3], 69:[2.1, 1.7], 27:[3.6, 2.1], 7:[3.6, 3.6]}[self.policy_length]
+        cell_scale = {39:1, 69:0.75, 27:1, 7:1}[self.policy_length]
         for idx, row in enumerate(self.shortbaseline):
             day1, day2, distance, period = self.shortbaseline[idx]
 
