@@ -1,9 +1,20 @@
 @echo off
-SET CondaPath=C:\tools\miniconda3
-SET PolicyPath=aaaa
+chcp 65001 > nul
+
+REM -- Set the path to your policy data folders
+SET "PolicyPath=D:\Policies-ALOS"
+
+REM -- Set the path to the conda environment definition
 SET envpath="%~dp0.env"
-if exist %envpath% (
-    CALL %CondaPath%\Scripts\activate %envpath%
-) else (
-    CALL %CondaPath%\Scripts\activate
+
+REM -- Find Conda installation
+SET "CondaPath=C:\ProgramData\miniconda3"
+SET "UserCondaPath=%USERPROFILE%\miniconda3"
+
+if exist "%UserCondaPath%\Scripts\activate.bat" (
+    SET "CondaPath=%UserCondaPath%"
 )
+
+REM -- Activate the environment
+echo Activating Conda environment: %envpath%
+CALL "%CondaPath%\Scripts\activate.bat" %envpath%
