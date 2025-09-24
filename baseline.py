@@ -101,6 +101,33 @@ class Policy:
         except Exception as e:
             raise FileNotFoundError("找不到 'templates\\baseline.docx' 範本檔案，請從 'templates' 資料夾中任選一個 .docx 檔案，並將其改名為 'baseline.docx'") from e
 
+        self._get_page_and_image_info()
+
+    def _get_page_and_image_info(self):
+        # Get page dimensions
+        section = self.document.sections[0]
+        self.page_width = section.page_width
+        self.page_height = section.page_height
+        self.left_margin = section.left_margin
+        self.right_margin = section.right_margin
+        self.top_margin = section.top_margin
+        self.bottom_margin = section.bottom_margin
+
+        self.usable_width = self.page_width - self.left_margin - self.right_margin
+        self.usable_height = self.page_height - self.top_margin - self.bottom_margin
+
+        # Get image aspect ratio from the first available image
+        self.image_aspect_ratio = 1.0 # Default to square
+        for idx, row in enumerate(self.shortbaseline):
+            day1, day2, distance, period = self.shortbaseline[idx]
+            filename = day1 + '-' + day2 + '.tflt.filt.de'
+            bmp_path = self.policy_dir + '\\postprocessing\\detrend_obs_file\\' + filename + '.bmp'
+            if os.path.isfile(bmp_path):
+                img = Image.open(bmp_path)
+                w, h = img.size
+                self.image_aspect_ratio = w / h
+                break
+
     def _get_layout_params(self):
         supported_lengths = [7, 27, 39, 69]
         # 找到最接近的支援長度
@@ -237,13 +264,27 @@ class Policy:
         # 取得排版參數
         cell_per_row, cell_size, cell_scale = self._get_layout_params()
 
-        # 移除舊表格並建立新表格
-        old_table = self.document.tables[2]
-        old_table._element.getparent().remove(old_table._element)
-        
-        num_rows = ceil(self.policy_length / cell_per_row) * 2
-        table = self.document.add_table(rows=num_rows, cols=cell_per_row)
-        table.style = 'Table Grid'
+        # 使用範本中的表格
+        table = self.document.tables[2]
+
+        # 確保表格有足夠的欄位
+        current_cols = len(table.columns)
+        if cell_per_row > current_cols:
+            for _ in range(cell_per_row - current_cols):
+                table.add_column(Cm(cell_size[0])) # 假設所有欄位寬度相同
+
+        # 計算需要的列數
+        num_rows_needed = ceil(self.policy_length / cell_per_row) * 2
+        current_rows = len(table.rows)
+
+        # 增加或刪除列
+        if num_rows_needed > current_rows:
+            for _ in range(num_rows_needed - current_rows):
+                table.add_row()
+        elif num_rows_needed < current_rows:
+            for i in range(current_rows - num_rows_needed):
+                row_to_remove = table.rows[current_rows - 1 - i]
+                row_to_remove._element.getparent().remove(row_to_remove._element)
 
         # 準備壓縮圖片的資料夾
         tmp_path = self.policy_dir + '\\tmp\\compressed'
@@ -261,6 +302,11 @@ class Policy:
             # 壓縮圖片
             filename = day1 + '-' + day2 + '.tflt.filt.de'
             bmp_path = self.policy_dir + '\\postprocessing\\detrend_obs_file\\' + filename + '.bmp'
+            
+            if not os.path.isfile(bmp_path):
+                print(f"警告：找不到 {bmp_path} 檔案，已跳過此圖片。")
+                continue
+
             png_path = tmp_path + '\\' + filename + '.png'
             img = Image.open(bmp_path)
             w, h = img.size
