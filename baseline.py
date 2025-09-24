@@ -15,52 +15,56 @@ def set_table_borders(table):
     Applies specific border styling to a table:
     - Thick outer borders
     - Thin inner borders
-    - Thick bottom border for the first (header) row
     """
-    # Manually get or create tblPr
-    tblPr = table._tbl.find(qn('w:tblPr'))
-    if tblPr is None:
-        tblPr = OxmlElement('w:tblPr')
-        tblGrid = table._tbl.find(qn('w:tblGrid'))
-        if tblGrid is not None:
-            tblGrid.addnext(tblPr)
-        else:
-            table._tbl.insert(0, tblPr)
-
-    # Clear existing table-level border definitions
-    for TblBorders in tblPr.findall(qn('w:tblBorders')):
-        tblPr.remove(TblBorders)
-
     # Define border styles
-    thin_border = {"sz": 4, "val": "single", "color": "#000000"}
-    thick_border = {"sz": 12, "val": "single", "color": "#000000"}
+    thin_border = {"sz": 4, "val": "single", "color": "auto"}
+    thick_border = {"sz": 12, "val": "single", "color": "auto"}
 
-    # Set table-level borders (inner thin, outer thick)
-    tblBorders = OxmlElement('w:tblBorders')
-    for border_type in ['top', 'left', 'bottom', 'right', 'insideH', 'insideV']:
-        border_el = OxmlElement(f'w:{border_type}')
-        border_props = thick_border if border_type in ['top', 'left', 'bottom', 'right'] else thin_border
-        for key, val in border_props.items():
-            border_el.set(qn(f'w:{key}'), str(val))
-        tblBorders.append(border_el)
-    tblPr.append(tblBorders)
-
-    # Override the bottom border of the first row to be thick
-    for cell in table.rows[0].cells:
-        tcPr = cell._tc.get_or_add_tcPr()
-        tcBorders = tcPr.find(qn('w:tcBorders'))
-        if tcBorders is None:
+    # Iterate through each cell to set borders
+    for i, row in enumerate(table.rows):
+        for j, cell in enumerate(row.cells):
+            tcPr = cell._tc.get_or_add_tcPr()
             tcBorders = OxmlElement('w:tcBorders')
+
+            # Clear existing borders
+            for border in tcPr.findall(qn('w:tcBorders')):
+                tcPr.remove(border)
+
+            # Determine border type based on cell position
+            is_top = (i == 0)
+            is_left = (j == 0)
+            is_bottom = (i == len(table.rows) - 1)
+            is_right = (j == len(row.cells) - 1)
+
+            # Top border
+            top_border = thick_border if is_top else thin_border
+            border_el = OxmlElement('w:top')
+            for key, val in top_border.items():
+                border_el.set(qn(f'w:{key}'), str(val))
+            tcBorders.append(border_el)
+
+            # Left border
+            left_border = thick_border if is_left else thin_border
+            border_el = OxmlElement('w:left')
+            for key, val in left_border.items():
+                border_el.set(qn(f'w:{key}'), str(val))
+            tcBorders.append(border_el)
+
+            # Bottom border
+            bottom_border = thick_border if is_bottom else thin_border
+            border_el = OxmlElement('w:bottom')
+            for key, val in bottom_border.items():
+                border_el.set(qn(f'w:{key}'), str(val))
+            tcBorders.append(border_el)
+
+            # Right border
+            right_border = thick_border if is_right else thin_border
+            border_el = OxmlElement('w:right')
+            for key, val in right_border.items():
+                border_el.set(qn(f'w:{key}'), str(val))
+            tcBorders.append(border_el)
+            
             tcPr.append(tcBorders)
-        
-        bottom_border = tcBorders.find(qn('w:bottom'))
-        if bottom_border is not None:
-            tcBorders.remove(bottom_border)
-        
-        bottom = OxmlElement('w:bottom')
-        for key, val in thick_border.items():
-            bottom.set(qn(f'w:{key}'), str(val))
-        tcBorders.append(bottom)
 
 def fill_cell(cell, txt):
     # This function seems to assume there is a run already.
