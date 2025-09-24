@@ -6,11 +6,69 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from math import ceil
 from PIL import Image
 import os
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from copy import deepcopy
 
+def set_table_borders(table):
+    """
+    Applies specific border styling to a table:
+    - Thick outer borders
+    - Thin inner borders
+    - Thick bottom border for the first (header) row
+    """
+    # Manually get or create tblPr
+    tblPr = table._tbl.find(qn('w:tblPr'))
+    if tblPr is None:
+        tblPr = OxmlElement('w:tblPr')
+        tblGrid = table._tbl.find(qn('w:tblGrid'))
+        if tblGrid is not None:
+            tblGrid.addnext(tblPr)
+        else:
+            table._tbl.insert(0, tblPr)
+
+    # Clear existing table-level border definitions
+    for TblBorders in tblPr.findall(qn('w:tblBorders')):
+        tblPr.remove(TblBorders)
+
+    # Define border styles
+    thin_border = {"sz": 4, "val": "single", "color": "#000000"}
+    thick_border = {"sz": 12, "val": "single", "color": "#000000"}
+
+    # Set table-level borders (inner thin, outer thick)
+    tblBorders = OxmlElement('w:tblBorders')
+    for border_type in ['top', 'left', 'bottom', 'right', 'insideH', 'insideV']:
+        border_el = OxmlElement(f'w:{border_type}')
+        border_props = thick_border if border_type in ['top', 'left', 'bottom', 'right'] else thin_border
+        for key, val in border_props.items():
+            border_el.set(qn(f'w:{key}'), str(val))
+        tblBorders.append(border_el)
+    tblPr.append(tblBorders)
+
+    # Override the bottom border of the first row to be thick
+    for cell in table.rows[0].cells:
+        tcPr = cell._tc.get_or_add_tcPr()
+        tcBorders = tcPr.find(qn('w:tcBorders'))
+        if tcBorders is None:
+            tcBorders = OxmlElement('w:tcBorders')
+            tcPr.append(tcBorders)
+        
+        bottom_border = tcBorders.find(qn('w:bottom'))
+        if bottom_border is not None:
+            tcBorders.remove(bottom_border)
+        
+        bottom = OxmlElement('w:bottom')
+        for key, val in thick_border.items():
+            bottom.set(qn(f'w:{key}'), str(val))
+        tcBorders.append(bottom)
 
 def fill_cell(cell, txt):
-    cell.paragraphs[0].runs[0].text = txt
-
+    # This function seems to assume there is a run already.
+    # A safer version would be:
+    if cell.paragraphs and cell.paragraphs[0].runs:
+        cell.paragraphs[0].runs[0].text = txt
+    else:
+        cell.text = txt
 
 def delete_paragraph(paragraph):
     p = paragraph._element
@@ -33,9 +91,28 @@ class Policy:
                 self.shortbaseline.append(line.split('\t'))
 
         # 開啟對應的範例
-        length = self.policy_length = len(self.shortbaseline)
-        assert length in [7, 27, 39, 69]
-        self.document = Document("templates\\baseline-" + str(length) + ".docx")
+        self.policy_length = len(self.shortbaseline)
+        try:
+            self.document = Document("templates\\baseline.docx")
+        except Exception as e:
+            raise FileNotFoundError("找不到 'templates\\baseline.docx' 範本檔案，請從 'templates' 資料夾中任選一個 .docx 檔案，並將其改名為 'baseline.docx'") from e
+
+    def _get_layout_params(self):
+        supported_lengths = [7, 27, 39, 69]
+        # 找到最接近的支援長度
+        closest_length = min(supported_lengths, key=lambda x: abs(x - self.policy_length))
+
+        # 如果長度遠大於已知的最大長度，就使用最大長度的參數
+        if self.policy_length > max(supported_lengths):
+            closest_length = max(supported_lengths)
+
+        cell_per_row_map = {39: 5, 69: 7, 27: 4, 7: 4}
+        cell_size_map = {39: [2.9, 2.3], 69: [2.1, 1.7], 27: [3.6, 2.1], 7: [3.6, 3.6]}
+        cell_scale_map = {39: 1, 69: 0.75, 27: 1, 7: 1}
+
+        return (cell_per_row_map.get(closest_length, 4),
+                cell_size_map.get(closest_length, [3.6, 3.6]),
+                cell_scale_map.get(closest_length, 1))
 
     def check_bmp_path(self):
         for idx, row in enumerate(self.shortbaseline):
@@ -89,17 +166,46 @@ class Policy:
 
     def fill_image_metadata(self):
         table = self.document.tables[1]
-        
-        # 驗證範例檔的表格列數與資料的欄位數量相符 (照理說不會有問題)
+    
         row_number = ceil(self.policy_length / 2)
 
-        assert row_number == len(table.rows)-1, '範本檔案中影像資料清單的資料列數應為資料總數的一半，預期有' +\
-                                str(row_number) + '列，實際上有' + str(len(table.rows)-1) + '列'
+        # 動態增刪表格列
+        current_rows = len(table.rows) - 1
+        
+        template_row = None
+        if current_rows > 0 and len(table.rows) > 1:
+            template_row = table.rows[1]
+
+        if row_number > current_rows:
+            for _ in range(row_number - current_rows):
+                new_row = table.add_row()
+                if template_row:
+                    # 套用列高
+                    new_row.height = template_row.height
+                    new_row.height_rule = template_row.height_rule
+                    # 複製儲存格格式 (包含底色)
+                    for i, template_cell in enumerate(template_row.cells):
+                        new_cell = new_row.cells[i]
+                        new_tcPr = deepcopy(template_cell._tc.get_or_add_tcPr())
+                        p = new_cell._tc.get_or_add_tcPr()
+                        p.getparent().replace(p, new_tcPr)
+
+        elif row_number < current_rows:
+            for i in range(current_rows - row_number):
+                row_to_remove = table.rows[current_rows - i]
+                row_to_remove._element.getparent().remove(row_to_remove._element)
+
+        # 清空可能存在的舊資料
+        for r_idx in range(1, len(table.rows)):
+            for c_idx in range(len(table.columns)):
+                fill_cell(table.rows[r_idx].cells[c_idx], "")
 
         # 開始填表 (左半)
         for idx in range(row_number):
+            if idx >= len(self.shortbaseline): break
             day1, day2, distance, period = self.shortbaseline[idx]
             cells = table.rows[idx+1].cells
+            fill_cell(cells[0], str(idx + 1)) # 填寫 NO
             fill_cell(cells[1], day1 + '-' + day2)
             fill_cell(cells[2], str(round(float(distance), 3)))
             fill_cell(cells[3], period.strip())
@@ -107,22 +213,39 @@ class Policy:
         # 繼續填表 (右半)
         for idx in range(row_number, len(self.shortbaseline)):
             day1, day2, distance, period = self.shortbaseline[idx]
-            cells = table.rows[idx - row_number + 1].cells
+            row_index_in_table = idx - row_number + 1
+            cells = table.rows[row_index_in_table].cells
+            fill_cell(cells[4], str(idx + 1)) # 填寫 NO
             fill_cell(cells[5], day1 + '-' + day2)
             fill_cell(cells[6], str(round(float(distance), 3)))
             fill_cell(cells[7], period.strip())
 
+        # 將表格內所有文字置中
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # 套用邊框樣式
+        set_table_borders(table)
+
     def fill_image_table(self):
-        table = self.document.tables[2]
+        # 取得排版參數
+        cell_per_row, cell_size, cell_scale = self._get_layout_params()
+
+        # 移除舊表格並建立新表格
+        old_table = self.document.tables[2]
+        old_table._element.getparent().remove(old_table._element)
+        
+        num_rows = ceil(self.policy_length / cell_per_row) * 2
+        table = self.document.add_table(rows=num_rows, cols=cell_per_row)
+        table.style = 'Table Grid'
 
         # 準備壓縮圖片的資料夾
         tmp_path = self.policy_dir + '\\tmp\\compressed'
         pathlib.Path(tmp_path).mkdir(parents=True, exist_ok=True)
 
         # 填表
-        cell_per_row = {39:5, 69:7, 27:4, 7:4}[self.policy_length]
-        cell_size = {39:[2.9, 2.3], 69:[2.1, 1.7], 27:[3.6, 2.1], 7:[3.6, 3.6]}[self.policy_length]
-        cell_scale = {39:1, 69:0.75, 27:1, 7:1}[self.policy_length]
         for idx, row in enumerate(self.shortbaseline):
             day1, day2, distance, period = self.shortbaseline[idx]
 
@@ -143,7 +266,9 @@ class Policy:
             # 填入圖片
             cell = table.rows[idx//cell_per_row * 2 + 1].cells[idx % cell_per_row]
             cell._element.clear_content()
-            cell.add_paragraph().add_run().add_picture(png_path, height=Cm(cell_size[1]))
+            if not cell.paragraphs:
+                cell.add_paragraph()
+            cell.paragraphs[0].add_run().add_picture(png_path, height=Cm(cell_size[1]))
             cell.paragraphs[0].alignment=WD_ALIGN_PARAGRAPH.CENTER
 
     def add_plot(self):
@@ -162,7 +287,7 @@ class Policy:
         if add_page_break:
             self.document.add_page_break()
             
-        doc_path = self.policy_dir + '\\tmp\\baseline-' + str(index) + '.docx'
+        doc_path = self.policy_dir + '\\tmp\\baseline-' + str(self.index) + '.docx'
         self.document.save(doc_path)
 
         return doc_path
@@ -178,7 +303,7 @@ if __name__ == '__main__':
     print('正在 ' + policy_path + ' 位置下尋找 Policy 資料夾... ', end='')
 
     import glob
-    policies = glob.glob(policy_path + '\Policy*')
+    policies = glob.glob(policy_path + '\\Policy*')
     print('共找到 ', len(policies), ' 組資料如下')
     for p in policies:
         print(p.split('\\')[-1])

@@ -41,11 +41,6 @@ for index, policy_dir in enumerate(policies):
     if not os.path.isfile(shortbaseline_plot_path):
         print(f'    在 {policy_dir} 中找不到 shortbaseline_plot.eps, 無法貼上大張基線圖')
         continue
-
-    # --- Check 5: baseline and bmp files ---
-    if not baseline_imported:
-        print(f"    無法檢查 bmp 檔案，因為 'baseline.py' 載入失敗: {baseline_error}")
-        continue
     
     try:
         policy = Policy(policy_dir=policy_dir, index=0)
