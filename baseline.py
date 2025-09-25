@@ -82,10 +82,9 @@ def delete_paragraph(paragraph):
 
 class Policy:
 
-    def __init__(self, policy_dir, index, image_scale=0.15, areas=None):
+    def __init__(self, policy_dir, index, areas=None):
         self.index = index
         self.areas = areas
-        self.image_scale = image_scale
         self.policy_dir = policy_dir
 
         # 把 baseline 開出來
@@ -101,49 +100,60 @@ class Policy:
         except Exception as e:
             raise FileNotFoundError("找不到 'templates\\baseline.docx' 範本檔案，請從 'templates' 資料夾中任選一個 .docx 檔案，並將其改名為 'baseline.docx'") from e
 
-        self._get_page_and_image_info()
-
-    def _get_page_and_image_info(self):
-        # Get page dimensions
-        section = self.document.sections[0]
-        self.page_width = section.page_width
-        self.page_height = section.page_height
-        self.left_margin = section.left_margin
-        self.right_margin = section.right_margin
-        self.top_margin = section.top_margin
-        self.bottom_margin = section.bottom_margin
-
-        self.usable_width = self.page_width - self.left_margin - self.right_margin
-        self.usable_height = self.page_height - self.top_margin - self.bottom_margin
-
-        # Get image aspect ratio from the first available image
-        self.image_aspect_ratio = 1.0 # Default to square
+    def _get_image_aspect_ratio(self):
+        """
+        Finds the first available image and returns its aspect ratio.
+        """
         for idx, row in enumerate(self.shortbaseline):
             day1, day2, distance, period = self.shortbaseline[idx]
             filename = day1 + '-' + day2 + '.tflt.filt.de'
             bmp_path = self.policy_dir + '\\postprocessing\\detrend_obs_file\\' + filename + '.bmp'
             if os.path.isfile(bmp_path):
-                img = Image.open(bmp_path)
-                w, h = img.size
-                self.image_aspect_ratio = w / h
-                break
+                with Image.open(bmp_path) as img:
+                    w, h = img.size
+                    if h > 0:
+                        return w / h
+        return 1.0 # Default to square if no image is found
 
     def _get_layout_params(self):
-        supported_lengths = [7, 27, 39, 69]
-        # 找到最接近的支援長度
-        closest_length = min(supported_lengths, key=lambda x: abs(x - self.policy_length))
+        """
+        Dynamically calculates the best layout for the image table by testing
+        different numbers of columns and choosing the one that best preserves
+        the original image aspect ratio.
+        """
+        image_aspect_ratio = self._get_image_aspect_ratio()
+        total_images = self.policy_length
 
-        # 如果長度遠大於已知的最大長度，就使用最大長度的參數
-        if self.policy_length > max(supported_lengths):
-            closest_length = max(supported_lengths)
+        best_layout = {
+            'diff': float('inf'),
+            'cell_per_row': 4, # Default
+            'cell_size': [3.6, 3.6] # Default
+        }
 
-        cell_per_row_map = {39: 5, 69: 7, 27: 4, 7: 4}
-        cell_size_map = {39: [2.9, 2.3], 69: [2.1, 1.7], 27: [3.6, 2.1], 7: [3.6, 3.6]}
-        cell_scale_map = {39: 1, 69: 0.75, 27: 1, 7: 1}
+        # Total available width and height in cm
+        TOTAL_WIDTH_CM = 14.7
+        TOTAL_HEIGHT_CM = 12.0
 
-        return (cell_per_row_map.get(closest_length, 4),
-                cell_size_map.get(closest_length, [3.6, 3.6]),
-                cell_scale_map.get(closest_length, 1))
+        for cell_per_row in range(3, 8): # 3 to 7
+            if total_images == 0: break # Avoid division by zero
+            
+            image_rows = ceil(total_images / cell_per_row)
+            if image_rows == 0: continue
+
+            cell_height = TOTAL_HEIGHT_CM / image_rows
+            cell_width = TOTAL_WIDTH_CM / cell_per_row
+            
+            if cell_height == 0: continue
+            cell_aspect_ratio = cell_width / cell_height
+            
+            diff = abs(cell_aspect_ratio - image_aspect_ratio)
+
+            if diff < best_layout['diff']:
+                best_layout['diff'] = diff
+                best_layout['cell_per_row'] = cell_per_row
+                best_layout['cell_size'] = [cell_width, cell_height]
+
+        return (best_layout['cell_per_row'], best_layout['cell_size'])
 
     def check_bmp_path(self):
         for idx, row in enumerate(self.shortbaseline):
@@ -260,9 +270,35 @@ class Policy:
         # 套用邊框樣式
         set_table_borders(table)
 
+    def _resize_and_save_image(self, bmp_path, png_path, target_h_cm):
+        """
+        Opens a BMP image, resizes it based on a target physical height and a set DPI,
+        and saves it as a PNG. Avoids upscaling.
+        """
+        with Image.open(bmp_path) as img:
+            w, h = img.size
+            if h == 0: return # Avoid division by zero for invalid images
+            aspect_ratio = w / h
+
+            # Define a reasonable DPI for document images
+            DPI = 150
+            
+            # Convert target height to pixels based on DPI (1 inch = 2.54 cm)
+            target_h_px = int((target_h_cm / 2.54) * DPI)
+            target_w_px = int(target_h_px * aspect_ratio)
+
+            # Resize the image only if it's larger than the target
+            if w > target_w_px:
+                # 使用 LANCZOS 濾波器以獲得較好的縮圖品質 (舊版 Pillow 相容)
+                img_resized = img.resize((target_w_px, target_h_px), Image.LANCZOS)
+                img_resized.save(png_path)
+            else:
+                # If the original image is smaller, just convert and save
+                img.save(png_path)
+
     def fill_image_table(self):
         # 取得排版參數
-        cell_per_row, cell_size, cell_scale = self._get_layout_params()
+        cell_per_row, cell_size = self._get_layout_params()
 
         # 使用範本中的表格
         table = self.document.tables[2]
@@ -286,8 +322,8 @@ class Policy:
                 row_to_remove = table.rows[current_rows - 1 - i]
                 row_to_remove._element.getparent().remove(row_to_remove._element)
 
-        # 準備壓縮圖片的資料夾
-        tmp_path = self.policy_dir + '\\tmp\\compressed'
+        # 準備存放轉換後 PNG 的資料夾
+        tmp_path = self.policy_dir + '\\tmp\\converted_pngs'
         pathlib.Path(tmp_path).mkdir(parents=True, exist_ok=True)
 
         # 填表
@@ -299,7 +335,7 @@ class Policy:
             fill_cell(cell, day1 + '-' + day2)
             cell.paragraphs[0].alignment=WD_ALIGN_PARAGRAPH.CENTER
 
-            # 壓縮圖片
+            # 處理圖片：縮放並儲存為 PNG
             filename = day1 + '-' + day2 + '.tflt.filt.de'
             bmp_path = self.policy_dir + '\\postprocessing\\detrend_obs_file\\' + filename + '.bmp'
             
@@ -308,10 +344,8 @@ class Policy:
                 continue
 
             png_path = tmp_path + '\\' + filename + '.png'
-            img = Image.open(bmp_path)
-            w, h = img.size
-            s = cell_scale * self.image_scale
-            img.resize((ceil(w*s),ceil(h*s))).save(png_path)
+            target_h_cm = cell_size[1]
+            self._resize_and_save_image(bmp_path, png_path, target_h_cm)
 
             # 填入圖片
             cell = table.rows[idx//cell_per_row * 2 + 1].cells[idx % cell_per_row]
