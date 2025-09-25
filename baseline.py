@@ -117,41 +117,55 @@ class Policy:
 
     def _get_layout_params(self):
         """
-        Dynamically calculates the best layout for the image table by testing
-        different numbers of columns and choosing the one that best preserves
-        the original image aspect ratio.
+        Dynamically calculates the best layout for the image table. It optimizes for two criteria:
+        1. Preserving the original image aspect ratio.
+        2. Ensuring the last row of images is as full as possible (ideally > 50%).
         """
         image_aspect_ratio = self._get_image_aspect_ratio()
         total_images = self.policy_length
 
-        best_layout = {
-            'diff': float('inf'),
-            'cell_per_row': 4, # Default
-            'cell_size': [3.6, 3.6] # Default
-        }
+        if total_images == 0:
+            return (4, [3.6, 3.6]) # Return a default if no images
 
-        # Total available width and height in cm
+        layouts = []
         TOTAL_WIDTH_CM = 14.7
         TOTAL_HEIGHT_CM = 12.0
 
         for cell_per_row in range(3, 8): # 3 to 7
-            if total_images == 0: break # Avoid division by zero
-            
             image_rows = ceil(total_images / cell_per_row)
             if image_rows == 0: continue
 
             cell_height = TOTAL_HEIGHT_CM / image_rows
             cell_width = TOTAL_WIDTH_CM / cell_per_row
-            
             if cell_height == 0: continue
-            cell_aspect_ratio = cell_width / cell_height
-            
-            diff = abs(cell_aspect_ratio - image_aspect_ratio)
 
-            if diff < best_layout['diff']:
-                best_layout['diff'] = diff
-                best_layout['cell_per_row'] = cell_per_row
-                best_layout['cell_size'] = [cell_width, cell_height]
+            cell_aspect_ratio = cell_width / cell_height
+            aspect_ratio_diff = abs(cell_aspect_ratio - image_aspect_ratio)
+
+            # Calculate fullness score
+            items_in_last_row = total_images % cell_per_row
+            if items_in_last_row == 0:
+                items_in_last_row = cell_per_row
+            fullness_score = items_in_last_row / cell_per_row
+
+            layouts.append({
+                'cell_per_row': cell_per_row,
+                'cell_size': [cell_width, cell_height],
+                'aspect_ratio_diff': aspect_ratio_diff,
+                'fullness_score': fullness_score
+            })
+
+        # Prefer layouts where the last row is more than half full
+        good_fullness_layouts = [l for l in layouts if l['fullness_score'] > 0.5]
+
+        best_layout = None
+        if good_fullness_layouts:
+            # From the "good" layouts, choose the best.
+            # Sort by aspect ratio difference (primary) and fullness (secondary, descending)
+            best_layout = sorted(good_fullness_layouts, key=lambda l: (l['aspect_ratio_diff'], -l['fullness_score']))[0]
+        else:
+            # If no layout has a well-filled last row, fall back to the best aspect ratio
+            best_layout = min(layouts, key=lambda l: l['aspect_ratio_diff'])
 
         return (best_layout['cell_per_row'], best_layout['cell_size'])
 
