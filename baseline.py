@@ -310,24 +310,76 @@ class Policy:
                 # If the original image is smaller, just convert and save
                 img.save(png_path)
 
-    def fill_image_table(self):
-        # 取得排版參數
-        cell_per_row, cell_size = self._get_layout_params()
+    def fill_image_table(self, table_index, search_dir_leaf, file_pattern, filename_suffix_to_remove):
+        import glob
 
-        # 使用範本中的表格
-        table = self.document.tables[2]
+        # 根據參數掃描資料夾取得所有影像
+        search_path = os.path.join(self.policy_dir, 'postprocessing', search_dir_leaf)
+        image_paths = glob.glob(os.path.join(search_path, file_pattern))
+        image_paths.sort() # 確保順序一致
+
+        total_images = len(image_paths)
+        
+        # 檢查文件是否有足夠的表格
+        if table_index >= len(self.document.tables):
+            print(f"警告：文件中的表格數量不足。找不到索引為 {table_index} 的表格。")
+            return
+            
+        table = self.document.tables[table_index]
+
+        # 如果沒有圖片，清空表格並返回
+        if total_images == 0:
+            for row in reversed(table.rows):
+                row._element.getparent().remove(row._element)
+            return
+
+        # --- 動態計算排版 ---
+        image_aspect_ratio = 1.0
+        with Image.open(image_paths[0]) as img:
+            w, h = img.size
+            if h > 0:
+                image_aspect_ratio = w / h
+        
+        layouts = []
+        TOTAL_WIDTH_CM = 14.7
+        TOTAL_HEIGHT_CM = 12.0
+        for cell_per_row in range(3, 8):
+            image_rows = ceil(total_images / cell_per_row)
+            if image_rows == 0: continue
+            cell_height = TOTAL_HEIGHT_CM / image_rows
+            cell_width = TOTAL_WIDTH_CM / cell_per_row
+            if cell_height == 0: continue
+            cell_aspect_ratio = cell_width / cell_height
+            aspect_ratio_diff = abs(cell_aspect_ratio - image_aspect_ratio)
+            items_in_last_row = total_images % cell_per_row
+            if items_in_last_row == 0: items_in_last_row = cell_per_row
+            fullness_score = items_in_last_row / cell_per_row
+            layouts.append({
+                'cell_per_row': cell_per_row, 'cell_size': [cell_width, cell_height],
+                'aspect_ratio_diff': aspect_ratio_diff, 'fullness_score': fullness_score
+            })
+        
+        good_fullness_layouts = [l for l in layouts if l['fullness_score'] > 0.5]
+        if good_fullness_layouts:
+            best_layout = sorted(good_fullness_layouts, key=lambda l: (l['aspect_ratio_diff'], -l['fullness_score']))[0]
+        else:
+            best_layout = min(layouts, key=lambda l: l['aspect_ratio_diff'])
+        
+        cell_per_row, cell_size = best_layout['cell_per_row'], best_layout['cell_size']
+        # --- 排版計算結束 ---
 
         # 確保表格有足夠的欄位
         current_cols = len(table.columns)
         if cell_per_row > current_cols:
             for _ in range(cell_per_row - current_cols):
-                table.add_column(Cm(cell_size[0])) # 假設所有欄位寬度相同
-
-        # 計算需要的列數
-        num_rows_needed = ceil(self.policy_length / cell_per_row) * 2
+                table.add_column(Cm(cell_size[0]))
+        
+        for col in table.columns:
+            col.width = Cm(cell_size[0])
+        
+        num_rows_needed = ceil(total_images / cell_per_row) * 2
         current_rows = len(table.rows)
 
-        # 增加或刪除列
         if num_rows_needed > current_rows:
             for _ in range(num_rows_needed - current_rows):
                 table.add_row()
@@ -336,38 +388,30 @@ class Policy:
                 row_to_remove = table.rows[current_rows - 1 - i]
                 row_to_remove._element.getparent().remove(row_to_remove._element)
 
-        # 準備存放轉換後 PNG 的資料夾
-        tmp_path = self.policy_dir + '\\tmp\\converted_pngs'
+        tmp_path = os.path.join(self.policy_dir, 'tmp', 'converted_pngs')
         pathlib.Path(tmp_path).mkdir(parents=True, exist_ok=True)
 
-        # 填表
-        for idx, row in enumerate(self.shortbaseline):
-            day1, day2, distance, period = self.shortbaseline[idx]
+        for idx, image_path in enumerate(image_paths):
+            filename = os.path.basename(image_path)
+            date_str = filename.replace(filename_suffix_to_remove, '')
 
-            # 填寫日期區段
-            cell = table.rows[idx//cell_per_row * 2].cells[idx % cell_per_row]
-            fill_cell(cell, day1 + '-' + day2)
-            cell.paragraphs[0].alignment=WD_ALIGN_PARAGRAPH.CENTER
+            row_idx = (idx // cell_per_row) * 2
+            col_idx = idx % cell_per_row
 
-            # 處理圖片：縮放並儲存為 PNG
-            filename = day1 + '-' + day2 + '.tflt.filt.de'
-            bmp_path = self.policy_dir + '\\postprocessing\\detrend_obs_file\\' + filename + '.bmp'
-            
-            if not os.path.isfile(bmp_path):
-                print(f"警告：找不到 {bmp_path} 檔案，已跳過此圖片。")
-                continue
+            cell = table.rows[row_idx].cells[col_idx]
+            fill_cell(cell, date_str)
+            cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-            png_path = tmp_path + '\\' + filename + '.png'
+            png_filename = filename.replace(filename_suffix_to_remove, '.png')
+            png_path = os.path.join(tmp_path, png_filename)
             target_h_cm = cell_size[1]
-            self._resize_and_save_image(bmp_path, png_path, target_h_cm)
+            self._resize_and_save_image(image_path, png_path, target_h_cm)
 
-            # 填入圖片
-            cell = table.rows[idx//cell_per_row * 2 + 1].cells[idx % cell_per_row]
+            cell = table.rows[row_idx + 1].cells[col_idx]
             cell._element.clear_content()
-            if not cell.paragraphs:
-                cell.add_paragraph()
-            cell.paragraphs[0].add_run().add_picture(png_path, height=Cm(cell_size[1]))
-            cell.paragraphs[0].alignment=WD_ALIGN_PARAGRAPH.CENTER
+            p = cell.add_paragraph()
+            p.add_run().add_picture(png_path, height=Cm(cell_size[1]))
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     def add_plot(self):
         image_paragraph = self.document.paragraphs[4]
@@ -379,13 +423,29 @@ class Policy:
         self.fill_index()
         self.fill_areas()
         self.fill_image_metadata()
-        self.fill_image_table()
+        
+        # 填入第一張圖表 (BMP)
+        self.fill_image_table(
+            table_index=2,
+            search_dir_leaf='detrend_obs_file',
+            file_pattern='*.tflt.filt.de.bmp',
+            filename_suffix_to_remove='.tflt.filt.de.bmp'
+        )
+        
+        # 填入第二張圖表 (GeoTIFF)
+        self.fill_image_table(
+            table_index=3,
+            search_dir_leaf='detrend_obs_file',
+            file_pattern='*.tflt.filt.de.geo.tif',
+            filename_suffix_to_remove='.tflt.filt.de.geo.tif'
+        )
+
         self.export_eps_to_png()
         self.add_plot()
         if add_page_break:
             self.document.add_page_break()
             
-        doc_path = self.policy_dir + '\\tmp\\baseline-' + str(self.index) + '.docx'
+        doc_path = os.path.join(self.policy_dir, 'tmp', f'baseline-{self.index}.docx')
         self.document.save(doc_path)
 
         return doc_path
