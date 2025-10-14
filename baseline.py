@@ -319,77 +319,6 @@ class Policy:
         image_paths.sort() # 確保順序一致
 
         total_images = len(image_paths)
-        
-        # 檢查文件是否有足夠的表格
-        if table_index >= len(self.document.tables):
-            print(f"警告：文件中的表格數量不足。找不到索引為 {table_index} 的表格。")
-            return
-            
-        table = self.document.tables[table_index]
-
-        # 如果沒有圖片，清空表格並返回
-        if total_images == 0:
-            for row in reversed(table.rows):
-                row._element.getparent().remove(row._element)
-            return
-
-        # --- 動態計算排版 ---
-        image_aspect_ratio = 1.0
-        with Image.open(image_paths[0]) as img:
-            w, h = img.size
-            if h > 0:
-                image_aspect_ratio = w / h
-        
-        layouts = []
-        TOTAL_WIDTH_CM = 14.7
-        TOTAL_HEIGHT_CM = 12.0
-        for cell_per_row in range(3, 8):
-            image_rows = ceil(total_images / cell_per_row)
-            if image_rows == 0: continue
-            cell_height = TOTAL_HEIGHT_CM / image_rows
-            cell_width = TOTAL_WIDTH_CM / cell_per_row
-            if cell_height == 0: continue
-            cell_aspect_ratio = cell_width / cell_height
-            aspect_ratio_diff = abs(cell_aspect_ratio - image_aspect_ratio)
-            items_in_last_row = total_images % cell_per_row
-            if items_in_last_row == 0: items_in_last_row = cell_per_row
-            fullness_score = items_in_last_row / cell_per_row
-            layouts.append({
-                'cell_per_row': cell_per_row, 'cell_size': [cell_width, cell_height],
-                'aspect_ratio_diff': aspect_ratio_diff, 'fullness_score': fullness_score
-            })
-        
-        good_fullness_layouts = [l for l in layouts if l['fullness_score'] > 0.5]
-        if good_fullness_layouts:
-            best_layout = sorted(good_fullness_layouts, key=lambda l: (l['aspect_ratio_diff'], -l['fullness_score']))[0]
-        else:
-            best_layout = min(layouts, key=lambda l: l['aspect_ratio_diff'])
-        
-        cell_per_row, cell_size = best_layout['cell_per_row'], best_layout['cell_size']
-        # --- 排版計算結束 ---
-
-        # 確保表格有足夠的欄位
-        current_cols = len(table.columns)
-        if cell_per_row > current_cols:
-            for _ in range(cell_per_row - current_cols):
-                table.add_column(Cm(cell_size[0]))
-        
-        for col in table.columns:
-            col.width = Cm(cell_size[0])
-        
-        num_rows_needed = ceil(total_images / cell_per_row) * 2
-        current_rows = len(table.rows)
-
-        if num_rows_needed > current_rows:
-            for _ in range(num_rows_needed - current_rows):
-                table.add_row()
-        elif num_rows_needed < current_rows:
-            for i in range(current_rows - num_rows_needed):
-                row_to_remove = table.rows[current_rows - 1 - i]
-                row_to_remove._element.getparent().remove(row_to_remove._element)
-
-        tmp_path = os.path.join(self.policy_dir, 'tmp', 'converted_pngs')
-        pathlib.Path(tmp_path).mkdir(parents=True, exist_ok=True)
 
         for idx, image_path in enumerate(image_paths):
             filename = os.path.basename(image_path)
@@ -402,16 +331,70 @@ class Policy:
             fill_cell(cell, date_str)
             cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-            png_filename = filename.replace(filename_suffix_to_remove, '.png')
-            png_path = os.path.join(tmp_path, png_filename)
-            target_h_cm = cell_size[1]
-            self._resize_and_save_image(image_path, png_path, target_h_cm)
+            
 
             cell = table.rows[row_idx + 1].cells[col_idx]
             cell._element.clear_content()
             p = cell.add_paragraph()
             p.add_run().add_picture(png_path, height=Cm(cell_size[1]))
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+
+    def _preprocess_images(self, search_dir, file_pattern):
+        import glob
+
+        # 根據參數掃描資料夾取得所有影像
+        search_path = os.path.join(self.policy_dir, search_dir)
+        image_paths = glob.glob(os.path.join(search_path, file_pattern))
+        image_paths.sort() # 確保順序一致
+
+        png_paths = []
+
+        tmp_path = os.path.join(self.policy_dir, 'tmp', 'converted_pngs')
+        pathlib.Path(tmp_path).mkdir(parents=True, exist_ok=True)
+        for idx, image_path in enumerate(image_paths):
+            filename = os.path.basename(image_path)
+            png_filename = filename + '.png'
+            png_path = os.path.join(tmp_path, png_filename)
+            target_h_cm = 3.8
+            self._resize_and_save_image(image_path, png_path, target_h_cm)
+            png_paths.append(png_path)
+
+        return png_paths
+
+
+    def duplicate_required_tables(self, table_num):
+        if table_num <= 0:
+            return
+
+        anchor_text = 'ALOS-2各期雷達影像對干涉圖'
+        all_body_elements = self.document.element.body[:]
+        start_index = -1
+
+        # 尋找錨點
+        for i, p in enumerate(self.document.paragraphs):
+            if anchor_text in p.text:
+                try:
+                    p_element = p._p
+                    start_index = all_body_elements.index(p_element)
+                    break
+                except ValueError:
+                    # This can happen if the paragraph element is not a direct child of the body
+                    # We might need a more robust way to find the element's index if this fails.
+                    continue
+        
+        if start_index != -1:
+            # 獲取從錨點開始到結尾的所有元素
+            elements_to_duplicate = all_body_elements[start_index:]
+            
+            # 根據 table_num 決定要複製幾次
+            for _ in range(table_num):
+                for element in elements_to_duplicate:
+                    new_element = deepcopy(element)
+                    self.document.element.body.append(new_element)
+        else:
+            print(f"警告：在文件中未找到指定的錨點文字 '{anchor_text}'，無法複製表格。")
+
 
     def add_plot(self):
         image_paragraph = self.document.paragraphs[4]
@@ -423,22 +406,24 @@ class Policy:
         self.fill_index()
         self.fill_areas()
         self.fill_image_metadata()
-        
+
+        # 統計要貼的圖片
+        detrend_obs_path = 'postprocessing/detrend_obs_file'
+        converted_bmp_img = self._preprocess_images(search_dir=detrend_obs_path, file_pattern='*.tflt.filt.de.bmp')
+        converted_tif_img = self._preprocess_images(search_dir=detrend_obs_path, file_pattern='*.tflt.filt.de.geo.tif')
+        bmp_tables_num = len(converted_bmp_img) // 20 + 1
+        tif_tables_num = len(converted_tif_img) // 20 + 1
+
+        # 根據要貼的圖片數量複製最後一頁的表格
+        print(f"在 {detrend_obs_path} 下找到 {len(converted_bmp_img)} 張 .bmp 圖檔及 {len(converted_tif_img)} 張 .tif 圖檔")
+        print(f"加入 {bmp_tables_num} + {tif_tables_num} 張表格")
+        self.duplicate_required_tables(bmp_tables_num + tif_tables_num - 1)
+
         # 填入第一張圖表 (BMP)
-        self.fill_image_table(
-            table_index=2,
-            search_dir_leaf='detrend_obs_file',
-            file_pattern='*.tflt.filt.de.bmp',
-            filename_suffix_to_remove='.tflt.filt.de.bmp'
-        )
+        #self.fill_image_table(table_index=2, converted_bmp_img)
         
         # 填入第二張圖表 (GeoTIFF)
-        self.fill_image_table(
-            table_index=3,
-            search_dir_leaf='detrend_obs_file',
-            file_pattern='*.tflt.filt.de.geo.tif',
-            filename_suffix_to_remove='.tflt.filt.de.geo.tif'
-        )
+        #self.fill_image_table(table_index=2 + bmp_tables_num, converted_tif_img)
 
         self.export_eps_to_png()
         self.add_plot()
