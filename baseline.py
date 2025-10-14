@@ -310,33 +310,31 @@ class Policy:
                 # If the original image is smaller, just convert and save
                 img.save(png_path)
 
-    def fill_image_table(self, table_index, search_dir_leaf, file_pattern, filename_suffix_to_remove):
-        import glob
 
-        # 根據參數掃描資料夾取得所有影像
-        search_path = os.path.join(self.policy_dir, 'postprocessing', search_dir_leaf)
-        image_paths = glob.glob(os.path.join(search_path, file_pattern))
-        image_paths.sort() # 確保順序一致
+    def fill_image_table(self, start_table_index, image_paths):
 
-        total_images = len(image_paths)
+        cell_per_row = 4
+        img_num_per_table = 20
 
         for idx, image_path in enumerate(image_paths):
-            filename = os.path.basename(image_path)
-            date_str = filename.replace(filename_suffix_to_remove, '')
+            table_index = start_table_index + idx // img_num_per_table
+            fill_index = idx % img_num_per_table
+            table = self.document.tables[table_index]
 
-            row_idx = (idx // cell_per_row) * 2
-            col_idx = idx % cell_per_row
+            filename = os.path.basename(image_path)
+            date_str = filename.split('.', 1)[0]
+
+            row_idx = (fill_index // cell_per_row) * 2
+            col_idx = fill_index % cell_per_row
 
             cell = table.rows[row_idx].cells[col_idx]
             fill_cell(cell, date_str)
             cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-            
-
             cell = table.rows[row_idx + 1].cells[col_idx]
             cell._element.clear_content()
             p = cell.add_paragraph()
-            p.add_run().add_picture(png_path, height=Cm(cell_size[1]))
+            p.add_run().add_picture(image_path, height=Cm(3.8))
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
 
@@ -420,10 +418,10 @@ class Policy:
         self.duplicate_required_tables(bmp_tables_num + tif_tables_num - 1)
 
         # 填入第一張圖表 (BMP)
-        #self.fill_image_table(table_index=2, converted_bmp_img)
+        self.fill_image_table(start_table_index=2, image_paths=converted_bmp_img)
         
         # 填入第二張圖表 (GeoTIFF)
-        #self.fill_image_table(table_index=2 + bmp_tables_num, converted_tif_img)
+        self.fill_image_table(start_table_index=2 + bmp_tables_num, image_paths=converted_tif_img)
 
         self.export_eps_to_png()
         self.add_plot()
