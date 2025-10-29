@@ -200,9 +200,49 @@ class Policy:
         return days
    
     def fill_dates(self):
+
+        # 填寫下降軌雷達列表中的圖幅編號
         cell = self.document.tables[0].rows[1].cells[1]
         dates = self.extract_dates()
         fill_cell(cell, '、'.join(dates) + '。')
+
+
+    def fill_years(self, bmp_filepaths, tif_filepaths):
+
+        def minmax_days_from_img_filepaths(img_filepaths):
+            img_filenames = [os.path.basename(path).split('.')[0] for path in img_filepaths]
+            day_pairs = [filename.split('-') for filename in img_filenames]
+            days = [day for day_pair in day_pairs for day in day_pair]
+            return min(days), max(days)
+
+        # paragraphs[6].runs[2] 是 '取代ALOS-2雷達衛星years之時空基線圖裡的年份' 中間的 years
+        dates = self.extract_dates()
+        shortbaseline_day_range = "{d1}-{d2}".format(d1=str(dates[0]), d2=str(dates[-1]))
+        baseline_image_title_years = self.document.paragraphs[6].runs[2]
+        baseline_image_title_years.text = shortbaseline_day_range
+
+        # 檢查日期的不一致性
+        d1bmp, d2bmp = minmax_days_from_img_filepaths(bmp_filepaths)
+        if d1bmp != dates[0]:
+            print("警告: shortbaseline 的最早日期 {d1short} 與 bmp 檔的最早日期 {d1bmp} 不一致".format(d1short=dates[0], d1bmp=d1bmp))
+        if d2bmp != dates[-1]:
+            print("警告: shortbaseline 的最晚日期 {d2short} 與 bmp 檔的最晚日期 {d2bmp} 不一致".format(d2short=dates[-1], d2bmp=d2bmp))
+
+        d1tif, d2tif = minmax_days_from_img_filepaths(tif_filepaths)
+        if d1tif != dates[0]:
+            print("警告: shortbaseline 的最早日期 {d1short} 與 tif 檔的最早日期 {d1tif} 不一致".format(d1short=dates[0], d1tif=d1tif))
+        if d2tif != dates[-1]:
+            print("警告: shortbaseline 的最晚日期 {d2short} 與 tif 檔的最晚日期 {d2tif} 不一致".format(d2short=dates[-1], d2tif=d2tif))
+        
+        # paragraphs[8].runs[3] 是 'ALOS-2雷達衛星years之時空基線資訊表' 的 years
+        baseline_table_title_years = self.document.paragraphs[8].runs[3]
+        baseline_table_title_years.text = shortbaseline_day_range
+
+        # paragraphs[8].runs[3] 是 'ALOS-2雷達衛星years之干涉圖' 的 years
+        img_table_title_years = self.document.paragraphs[11].runs[3]
+        img_table_title_years.text = shortbaseline_day_range
+        image_table_title = "ALOS-2雷達衛星{years}之干涉圖".format(years=shortbaseline_day_range)
+        return image_table_title
 
     def fill_index(self):
         index_run = self.document.paragraphs[2].runs[0]
@@ -361,11 +401,11 @@ class Policy:
         return png_paths
 
 
-    def duplicate_required_tables(self, table_num):
+    def duplicate_required_tables(self, table_num, anchor_text):
         if table_num <= 0:
             return
 
-        anchor_text = 'ALOS-2各期雷達影像對干涉圖'
+        #anchor_text = 'ALOS-2各期雷達影像對干涉圖'
         all_body_elements = self.document.element.body[:]
         start_index = -1
 
@@ -400,22 +440,31 @@ class Policy:
         image_paragraph.add_run().add_picture(self.image_path, width=Cm(15.53))
 
     def export_parital_docx(self, add_page_break=True):
-        self.fill_dates()
-        self.fill_index()
-        self.fill_areas()
-        self.fill_image_metadata()
 
-        # 統計要貼的圖片
+        # 統計要貼的圖片，取得檔名及日期
         detrend_obs_path = 'postprocessing/detrend_obs_file'
         converted_bmp_img = self._preprocess_images(search_dir=detrend_obs_path, file_pattern='*.tflt.filt.de.bmp')
         converted_tif_img = self._preprocess_images(search_dir=detrend_obs_path, file_pattern='*.tflt.filt.de.geo.tif')
         bmp_tables_num = len(converted_bmp_img) // 20 + 1
         tif_tables_num = len(converted_tif_img) // 20 + 1
 
+        # 會先修改影像的標題再搜尋這個標題複製頁面
+        # 只好先把這個標題 image_table_title 存下來
+        # 正式的方法當然是去生成表格但是暫時不想面對要生成表格要設定的數字
+        # 所以採用這種複製已經調好的頁面的方式
+        image_table_title = self.fill_years(converted_bmp_img, converted_tif_img)
+
+        self.fill_dates()
+        self.fill_index()
+        self.fill_areas()
+        self.fill_image_metadata()
+
+
+
         # 根據要貼的圖片數量複製最後一頁的表格
         print(f"在 {detrend_obs_path} 下找到 {len(converted_bmp_img)} 張 .bmp 圖檔及 {len(converted_tif_img)} 張 .tif 圖檔")
         print(f"加入 {bmp_tables_num} + {tif_tables_num} 張表格")
-        self.duplicate_required_tables(bmp_tables_num + tif_tables_num - 1)
+        self.duplicate_required_tables(bmp_tables_num + tif_tables_num - 1, image_table_title)
 
         # 填入第一張圖表 (BMP)
         self.fill_image_table(start_table_index=2, image_paths=converted_bmp_img)
