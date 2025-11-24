@@ -20,27 +20,39 @@ for index, policy_dir in enumerate(policies):
 
     # --- Check 1: coregistration_Error_file ---
     coregistration_Error_file = os.path.join(policy_dir, 'Report_3coregistration_Error.txt')
+    print('尋找', coregistration_Error_file, '...', end='')
     if not os.path.isfile(coregistration_Error_file):
-        print(f'    在 {policy_dir} 中找不到 Report_3coregistration_Error.txt, 無法產生誤差分析')
+        print(f'fail\n    在 {policy_dir} 中找不到 Report_3coregistration_Error.txt, 無法產生誤差分析')
         continue
+    else:
+        print('success')
 
     # --- Check 2: coherence_file ---
     coherence_file = os.path.join(policy_dir, 'coherence_phase', 'ifg_coh_filt_coh_compare')
+    print('尋找', coherence_file, '...', end='')
     if not os.path.isfile(coherence_file):
-        print(f'    在 {policy_dir} 中找不到 coherence_phase\\ifg_coh_filt_coh_compare, 無法產生同調性分析')
+        print(f'fail\n    在 {policy_dir} 中找不到 coherence_phase\\ifg_coh_filt_coh_compare, 無法產生同調性分析')
         continue
+    else:
+        print('success')
 
     # --- Check 3: postprocessing_file ---
     postprocessing_file = os.path.join(policy_dir, 'postprocessing', 'shortbaseline')
+    print('尋找', postprocessing_file, '...', end='')
     if not os.path.isfile(postprocessing_file):
-        print(f'    在 {policy_dir} 中找不到 postprocessing\\shortbaseline, 無法分析基線資訊')
+        print(f'fail\n    在 {policy_dir} 中找不到 postprocessing\\shortbaseline, 無法分析基線資訊')
         continue
+    else:
+        print('success')
 
     # --- Check 4: shortbaseline_plot_path ---
     shortbaseline_plot_path = os.path.join(policy_dir, 'shortbaseline_plot.eps')
+    print('尋找', shortbaseline_plot_path, '...', end='')
     if not os.path.isfile(shortbaseline_plot_path):
-        print(f'    在 {policy_dir} 中找不到 shortbaseline_plot.eps, 無法貼上大張基線圖')
+        print(f'fail\n    在 {policy_dir} 中找不到 shortbaseline_plot.eps, 無法貼上大張基線圖')
         continue
+    else:
+        print('success')
     
     try:
         policy = Policy(policy_dir=policy_dir, index=0)

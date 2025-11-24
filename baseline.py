@@ -177,7 +177,8 @@ class Policy:
             filename = day1 + '-' + day2 + '.tflt.filt.de'
             bmp_path = self.policy_dir + '\\postprocessing\\detrend_obs_file\\' + filename + '.bmp'
             if not os.path.isfile(bmp_path):
-                return bmp_path
+                print(filename, '被列於 shortbaseline 檔案但對應的', bmp_path, '並不存在')
+                #return bmp_path
 
 
     def export_eps_to_png(self):
